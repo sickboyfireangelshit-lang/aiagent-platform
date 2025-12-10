@@ -1,4 +1,135 @@
-# aiagent-platformUser --> POST /chat --> FastAPI Endpoint
+// defensive-monitor.js
+(function () {
+  'use strict';
+
+  // Configuration: list of allowed script source origins and allowed connect origins
+  const ALLOWED_SCRIPT_ORIGINS = ['self', location.origin]; // update with provider origins like https://js.stripe.com
+  const ALLOWED_CONNECT_ORIGINS = [location.origin]; // add your payment provider API origin if needed
+
+  // Helper: canonical origin string
+  function originOf(url) {
+    try { return new URL(url, location.href).origin; } catch(e){ return null; }
+  }
+
+  // Small UI banner for test environment
+  function showBanner(msg, level='warn') {
+    let b = document.getElementById('__defense_banner');
+    if (!b) {
+      b = document.createElement('div');
+      b.id = '__defense_banner';
+      b.style.position = 'fixed';
+      b.style.right = '10px';
+      b.style.bottom = '10px';
+      b.style.zIndex = '999999';
+      b.style.maxWidth = '320px';
+      b.style.padding = '10px';
+      b.style.borderRadius = '6px';
+      b.style.boxShadow = '0 2px 8px rgba(0,0,0,.2)';
+      b.style.fontSize = '13px';
+      document.body.appendChild(b);
+    }
+    b.style.background = level === 'error' ? '#ffe6e6' : '#fff8db';
+    b.style.color = '#111';
+    b.textContent = `[DEFENSE] ${msg}`;
+  }
+
+  // 1) Observe <script> insertions
+  const scriptObserver = new MutationObserver(function (mutations) {
+    for (const m of mutations) {
+      for (const node of m.addedNodes) {
+        if (node.tagName === 'SCRIPT') {
+          const src = node.src || '[inline]';
+          const o = originOf(src);
+          const allowed = (o === location.origin) || (o && ALLOWED_SCRIPT_ORIGINS.includes(o)) || (src === '');
+          console.warn('[DEFENSE] Script added', { src, allowed });
+          if (!allowed) showBanner(`Unexpected script added: ${src}`, 'error');
+        }
+      }
+    }
+  });
+  scriptObserver.observe(document.documentElement || document, { childList: true, subtree: true });
+
+  // 2) Watch for changes inside payment form
+  const paymentForm = document.getElementById('payment-form');
+  if (paymentForm) {
+    const formObserver = new MutationObserver(function (mutations) {
+      for (const m of mutations) {
+        if (m.type === 'attributes' || m.type === 'childList') {
+          console.warn('[DEFENSE] Payment form mutated', m);
+          showBanner('Payment form DOM changed — inspect console', 'error');
+        }
+      }
+    });
+    formObserver.observe(paymentForm, { childList: true, subtree: true, attributes: true });
+  } else {
+    console.info('[DEFENSE] No payment-form element found to monitor.');
+  }
+
+  // 3) Detect added submit event listeners (monkey-patch addEventListener)
+  (function () {
+    const origAdd = EventTarget.prototype.addEventListener;
+    EventTarget.prototype.addEventListener = function (type, fn, opts) {
+      if (this === paymentForm && type === 'submit') {
+        console.warn('[DEFENSE] submit listener added to payment form', fn);
+        showBanner('New submit handler added to payment form', 'warn');
+      }
+      return origAdd.call(this, type, fn, opts);
+    };
+  })();
+
+  // 4) Wrap fetch and XMLHttpRequest to detect network requests to disallowed origins
+  (function () {
+    const origFetch = window.fetch;
+    window.fetch = function (input, init) {
+      try {
+        const url = (typeof input === 'string') ? input : (input && input.url) || '';
+        const o = originOf(url);
+        if (o && !ALLOWED_CONNECT_ORIGINS.includes(o) && o !== location.origin) {
+          console.warn('[DEFENSE] fetch to third-party origin', url);
+          showBanner(`Network call to ${o} detected`, 'warn');
+        }
+      } catch (e) { /* ignore */ }
+      return origFetch.apply(this, arguments);
+    };
+
+    const OrigXHR = window.XMLHttpRequest;
+    function WrappedXHR() {
+      const xhr = new OrigXHR();
+      const origOpen = xhr.open;
+      xhr.open = function (method, url) {
+        try {
+          const o = originOf(url);
+          if (o && !ALLOWED_CONNECT_ORIGINS.includes(o) && o !== location.origin) {
+            console.warn('[DEFENSE] XHR open to third-party', url);
+            showBanner(`XHR to ${o} detected`, 'warn');
+          }
+        } catch (e) {}
+        return origOpen.apply(this, arguments);
+      };
+      return xhr;
+    }
+    window.XMLHttpRequest = WrappedXHR;
+  })();
+
+  // 5) Periodic integrity check for critical scripts (toy example)
+  const KNOWN_SCRIPT_HASHES = {
+    // 'https://js.stripe.com/v3/': 'expected-hash-string', // in real test, compute SRI/hash
+  };
+  function checkScriptIntegrity() {
+    for (const s of document.querySelectorAll('script[src]')) {
+      const src = s.src;
+      if (KNOWN_SCRIPT_HASHES[src]) {
+        // Example placeholder: in production use Subresource Integrity (SRI) and CSP
+        // For test: simply note presence/absence
+        console.info('[DEFENSE] Known script present', src);
+      }
+    }
+  }
+  setInterval(checkScriptIntegrity, 15000);
+
+  // Completed initialization
+  console.info('[DEFENSE] Defensive monitor installed');
+})();# aiagent-platformUser --> POST /chat --> FastAPI Endpoint
          |
          v
      Redis (Store History)
