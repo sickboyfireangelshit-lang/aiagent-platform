@@ -214,3 +214,4 @@ app = FastAPI(title="Open Source AI Agent")
 def run(request: AgentRequest):
     response = run_agent(request.prompt)
     return AgentResponse(response=response)
+https://chatgpt.com/canvas/shared/693913259cc88191ae4a4829e7a308c6
